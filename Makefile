@@ -4,22 +4,28 @@ help:
 	@echo "Keycloak SaaS Development Commands"
 	@echo ""
 	@echo "Local Development:"
-	@echo "  make up              - Start local dev stack (docker-compose up)"
+	@echo "  make up              - Start local dev stack (docker-compose up -d)"
 	@echo "  make down            - Stop all containers"
-	@echo "  make logs            - Tail container logs"
-	@echo "  make clean           - Remove containers, volumes, and temp files"
+	@echo "  make logs            - Tail all container logs"
+	@echo "  make clean           - Remove containers, volumes, and build artifacts"
 	@echo ""
-	@echo "Backend (Keycloak Extensions):"
-	@echo "  make backend-build   - Build Keycloak provider JARs"
+	@echo "Backend (Node.js/Fastify):"
+	@echo "  make backend-install - Install Node.js dependencies"
+	@echo "  make backend-dev     - Start backend dev server with hot reload"
+	@echo "  make backend-build   - Build optimized backend bundle"
 	@echo "  make backend-test    - Run backend unit tests"
+	@echo "  make backend-lint    - Lint backend code"
 	@echo ""
 	@echo "Frontend:"
-	@echo "  make frontend-dev    - Start frontend dev server (npm start)"
+	@echo "  make frontend-dev    - Start frontend dev server"
 	@echo "  make frontend-build  - Build optimized frontend bundle"
 	@echo "  make frontend-test   - Run frontend tests"
 	@echo ""
+	@echo "Database:"
+	@echo "  make db-dump         - Backup database to file"
+	@echo ""
 	@echo "Deployment:"
-	@echo "  make deploy-staging  - Deploy to staging (kustomize + kubectl)"
+	@echo "  make deploy-staging  - Deploy to staging"
 	@echo "  make deploy-prod     - Deploy to production"
 	@echo ""
 
@@ -43,15 +49,27 @@ clean:
 	docker-compose down -v
 	rm -rf build/ dist/ .next/ node_modules/ target/
 
-# Backend (Keycloak Extensions)
+# Backend (Node.js/Fastify API)
+backend-install:
+	cd backend && npm install
+
 backend-build:
-	cd backend && mvn clean package
+	cd backend && npm run build
+
+backend-dev:
+	cd backend && npm run dev
 
 backend-test:
-	cd backend && mvn test
+	cd backend && npm test
 
-backend-single-test:
-	cd backend && mvn test -Dtest=$(TEST_CLASS)
+backend-test-watch:
+	cd backend && npm run test:watch
+
+backend-lint:
+	cd backend && npm run lint
+
+backend-format:
+	cd backend && npm run format
 
 # Frontend
 frontend-dev:
@@ -71,17 +89,17 @@ docker-build-keycloak:
 	docker build -f docker/Dockerfile.keycloak -t keycloak-saas:latest .
 
 docker-build-api:
-	docker build -f docker/Dockerfile.api -t keycloak-saas-api:latest .
+	cd backend && npm run build && docker build -f ../docker/Dockerfile.api -t keycloak-saas-api:latest ..
 
 docker-build-all: docker-build-keycloak docker-build-api
 
 # Database
 db-migrate:
-	# Run Flyway migrations (assumes Flyway CLI installed or Maven plugin)
-	cd backend && mvn flyway:migrate
+	# Migrations auto-applied on container startup via docker-entrypoint-initdb.d
+	@echo "Migrations applied automatically. Check docker logs for status."
 
-db-info:
-	cd backend && mvn flyway:info
+db-dump:
+	docker exec keycloak-db pg_dump -U keycloak keycloak > db/backup_$(shell date +%Y%m%d_%H%M%S).sql
 
 # Kubernetes / Deployment
 deploy-staging:

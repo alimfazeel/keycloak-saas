@@ -8,10 +8,11 @@ Keycloak SaaS identity and access management platform with backend, frontend, an
 
 ## Architecture
 
-**Backend**: Keycloak (Java-based identity provider) with extensions for custom auth flows.
-- `backend/src/main/java/` — custom providers, extensions, event listeners
-- `backend/src/main/resources/` — theme templates, realm configurations
-- `backend/src/test/` — unit and integration tests
+**Backend**: Node.js/Fastify API with TypeScript, PostgreSQL integration, structured logging, and audit trails.
+- `backend/src/services/` — ApplicationConfigService, AuditLogService, LoggerService
+- `backend/src/types/` — TypeScript entity definitions (ApplicationConfig, AuditLog, ApplicationLog, AuditEvent)
+- `backend/test/` — Jest unit tests for all services
+- `backend/src/index.ts` — Fastify server entry point with health checks
 
 **Frontend**: Admin and user-facing dashboards (React/TypeScript or equivalent).
 - `frontend/src/components/` — reusable UI components
@@ -28,7 +29,9 @@ Keycloak SaaS identity and access management platform with backend, frontend, an
 **Technology Stack (DECIDED):**
 - Database: PostgreSQL 15+ (single choice across all environments)
 - Deployment: Environment parity (same Docker images, compose definitions used in dev, staging, production)
-- Keycloak: Java-based (customizable via SPI providers)
+- Identity Provider: Keycloak (Java-based, OIDC/SAML/LDAP support)
+- Backend Runtime: Node.js 18+ (Fastify framework, TypeScript)
+- Backend Testing: Jest
 - Multi-tenancy: Realm-per-tenant strategy
 
 **Configuration**:
@@ -40,21 +43,29 @@ Keycloak SaaS identity and access management platform with backend, frontend, an
 ### Backend
 
 ```bash
+# Install dependencies
+npm install
+
+# Development server (with hot reload)
+npm run dev
+
 # Build
-mvn clean package
+npm run build
 
 # Run tests
-mvn test
+npm test
 
-# Single test
-mvn test -Dtest=ClassName#methodName
+# Run tests in watch mode
+npm run test:watch
 
-# Run locally
-mvn spring-boot:run
+# Lint
+npm run lint
 
-# Lint/format
-mvn spotless:apply
-mvn checkstyle:check
+# Format code
+npm run format
+
+# Type check
+npm run type-check
 ```
 
 ### Frontend
@@ -98,24 +109,32 @@ docker-compose down
 
 ## Key Patterns
 
-**Keycloak Extensions**: Custom User Storage Providers and Authentication Flows in `backend/src/main/java/com/*/providers/`. Implement `UserStorageProvider` or `Authenticator` interfaces. Register via SPI mechanism in `META-INF/services/`.
+**Services**: 
+- `ApplicationConfigService` — manages app-wide configuration with in-memory caching (TTL-based), type conversion, secret masking. All changes logged to audit_logs.
+- `AuditLogService` — immutable compliance audit trail. Logs user login/logout, config changes, API calls, permission denials, errors. Query by user/tenant/event/level.
+- `LoggerService` — structured application logging to application_logs table. Supports distributed tracing (requestId, traceId, spanId). Non-blocking persistence (catches exceptions).
 
-**API Integration**: Frontend communicates with Keycloak via Admin REST API (protected by service account) and User Realm API. Endpoints prefixed `/auth/admin/realms/{realm}/` (Admin API) and `/auth/realms/{realm}/` (User API).
+**Database**: PostgreSQL with Flyway migrations in `db/migrations/`. Three main tables:
+- `application_config` — app configuration with versioning and audit trail
+- `audit_logs` — immutable compliance events (never hard-deleted)
+- `application_logs` — detailed debug logs with structured context (JSONB)
 
-**Database**: PostgreSQL. Schema managed by Keycloak core + custom migrations in `db/migrations/`. Keycloak handles most schema automatically; custom tables go in versioned migration files.
+**API Routes**: Fastify server at `backend/src/index.ts`. Health checks: `/health` (basic), `/health/ready` (with DB check).
 
-**Authentication**: Standard OAuth2/OIDC flows. Custom realm configurations stored in JSON or exported/imported via Keycloak admin console.
+**Testing**: Jest tests in `backend/test/services/`. Mock repositories/services, test happy path and error cases, verify audit logging.
 
 ## Development Workflow
 
-1. Local environment: `docker-compose up` starts Keycloak, PostgreSQL, and frontend dev server.
-2. Backend changes: edit code in `backend/src/`, rebuild container or restart Spring Boot.
+1. Local environment: `make up` starts Keycloak, PostgreSQL, Node.js API, and Nginx.
+2. Backend changes: `npm run dev` for hot reload, or edit code and container restarts on save.
 3. Frontend changes: hot-reload enabled in dev server.
-4. Database schema: add migration file in `db/migrations/`, auto-applied on container startup.
+4. Database schema: add migration file in `db/migrations/` (V###__*.sql), auto-applied on container startup.
+5. Testing: `npm test` or `npm run test:watch` for watch mode.
 
 ## Important Notes
 
-- **Realm Configuration**: Realm settings (clients, roles, policies) can be version-controlled as JSON or UI-managed. Clarify approach with team.
+- **Config Caching**: ApplicationConfigService uses 5-minute TTL cache. Invalidate with `invalidateCache(key)` on updates.
+- **Audit Logging**: Never hard-delete audit_logs. Use soft-delete pattern (isActive=false). All state-changing operations logged via AuditLogService.
 - **Secrets**: Use `.env.local` (git-ignored) for local development. Production secrets managed externally (K8s secrets, vault).
-- **Keycloak Version**: Check `backend/pom.xml` or `docker-compose.yml` for pinned version.
-- **Custom Themes**: Keycloak themes in `backend/src/main/resources/theme/` override default UI. Follow Keycloak theme structure (templates, CSS, messages).
+- **Keycloak**: Separate container. API communicates via Keycloak Admin API. Check `docker-compose.yml` for connection details.
+- **Environment Parity**: Same Docker images for dev/staging/prod. Only config/replicas differ via Kustomize overlays.

@@ -1,7 +1,6 @@
 version: '3.8'
 
 services:
-  # PostgreSQL Database (Keycloak backend)
   postgres:
     image: postgres:15-alpine
     container_name: keycloak-db
@@ -14,6 +13,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./db/init:/docker-entrypoint-initdb.d
+      - ./db/migrations:/docker-entrypoint-initdb.d/migrations
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U keycloak"]
       interval: 10s
@@ -22,7 +22,6 @@ services:
     networks:
       - keycloak-network
 
-  # Keycloak Identity Provider
   keycloak:
     build:
       context: .
@@ -32,37 +31,20 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      # Admin credentials
       KEYCLOAK_ADMIN: admin
       KEYCLOAK_ADMIN_PASSWORD: admin-change-me-in-dev
-
-      # Database
       KC_DB: postgres
       KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
       KC_DB_USERNAME: keycloak
       KC_DB_PASSWORD: keycloak-password-dev
-
-      # Hostname & Proxy
       KC_HOSTNAME: localhost
       KC_HOSTNAME_PORT: 8080
       KC_PROXY: edge
       KC_HTTP_ENABLED: "true"
-
-      # Logging
       KC_LOG_LEVEL: INFO
-
-      # Realm auto-create for multi-tenancy
-      KEYCLOAK_TENANT_STRATEGY: realm-per-tenant
-
-      # Security defaults
-      ACCESS_TOKEN_LIFETIME: 900
-      REFRESH_TOKEN_LIFETIME: 86400
     ports:
       - "8080:8080"
     volumes:
-      # Mount custom providers (Keycloak extensions)
-      - ./backend/target/keycloak-providers.jar:/opt/keycloak/providers/keycloak-providers.jar:ro
-      # Mount themes
       - ./config/keycloak/themes:/opt/keycloak/themes:ro
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health/ready"]
@@ -72,12 +54,36 @@ services:
     networks:
       - keycloak-network
 
-  # Nginx Reverse Proxy (multi-tenant routing)
+  api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.api
+    container_name: keycloak-api
+    depends_on:
+      - postgres
+      - keycloak
+    environment:
+      NODE_ENV: development
+      API_PORT: 3000
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: keycloak
+      DB_USER: keycloak
+      DB_PASSWORD: keycloak-password-dev
+      LOG_LEVEL: debug
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./backend/dist:/app/dist
+    networks:
+      - keycloak-network
+
   nginx:
     image: nginx:1.25-alpine
     container_name: nginx
     depends_on:
       - keycloak
+      - api
     ports:
       - "80:80"
       - "443:443"
@@ -87,55 +93,6 @@ services:
       - ./docker/certs:/etc/nginx/certs:ro
     networks:
       - keycloak-network
-
-  # API Backend (Node.js - optional, if separate from Keycloak)
-  # Uncomment if building a separate backend API layer
-  # api:
-  #   build:
-  #     context: .
-  #     dockerfile: docker/Dockerfile.api
-  #   container_name: keycloak-api
-  #   depends_on:
-  #     - keycloak
-  #   environment:
-  #     NODE_ENV: development
-  #     API_PORT: 3000
-  #     KEYCLOAK_URL: http://keycloak:8080
-  #     KEYCLOAK_REALM: master
-  #     KEYCLOAK_ADMIN_USER: admin
-  #     KEYCLOAK_ADMIN_PASSWORD: admin-change-me-in-dev
-  #     DB_HOST: postgres
-  #     DB_PORT: 5432
-  #     DB_NAME: keycloak
-  #     DB_USER: keycloak
-  #     DB_PASSWORD: keycloak-password-dev
-  #   ports:
-  #     - "3000:3000"
-  #   volumes:
-  #     - ./backend/src:/app/src
-  #   networks:
-  #     - keycloak-network
-
-  # Frontend Dev Server (React/Next.js - optional)
-  # Uncomment and configure if frontend runs in Docker
-  # frontend:
-  #   build:
-  #     context: ./frontend
-  #     dockerfile: ../docker/Dockerfile.frontend
-  #   container_name: keycloak-frontend
-  #   depends_on:
-  #     - keycloak
-  #     - nginx
-  #   environment:
-  #     REACT_APP_API_BASE_URL: http://localhost/api
-  #     REACT_APP_KEYCLOAK_URL: http://localhost
-  #     REACT_APP_KEYCLOAK_CLIENT_ID: frontend-client
-  #   ports:
-  #     - "3001:3000"
-  #   volumes:
-  #     - ./frontend/src:/app/src
-  #   networks:
-  #     - keycloak-network
 
 volumes:
   postgres_data:

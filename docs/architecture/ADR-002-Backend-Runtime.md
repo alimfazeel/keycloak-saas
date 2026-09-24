@@ -1,8 +1,9 @@
 # ADR-002: Backend Runtime & API Layer
 
 **Date:** 2026-09-24  
-**Status:** PENDING DECISION  
-**Deciders:** Architecture Team
+**Status:** DECIDED  
+**Deciders:** Architecture Team  
+**Decision:** Node.js 18+ with Fastify framework, TypeScript
 
 ## Context
 
@@ -70,21 +71,41 @@ Backend API layer required for:
 4. **Feature Time-to-Market:** Speed of iteration vs polish
 5. **Cost:** Infrastructure, developer salaries, tooling
 
-## Recommendation
+## Decision
 
-**HOLD:** Decision deferred until Week 1 team alignment meeting.
+**CHOSEN: Node.js 18+ with Fastify**
 
-**Suggested approach:**
-- If team has strong Node.js background → Node.js + NestJS (balanced opinionation)
-- If team has Java background and Keycloak expertise → Java Spring Boot (shared ecosystem)
-- If extreme performance + simplicity needed → Go (less likely for this tier)
+**Why Fastify over alternatives:**
+- Performance: ~20k req/s vs Express's ~8k req/s (important for multi-tenant SaaS)
+- Low overhead: minimal framework boilerplate, faster startup
+- TypeScript-native: full IDE support, type safety
+- Schema validation: built-in JSON Schema support for request/response validation
+- Streaming: native support for large payloads (audit log exports, bulk operations)
+
+**Implementation:**
+- Framework: Fastify 4.x
+- Language: TypeScript with strict mode
+- Testing: Jest + mocking for database/services
+- Logging: pino (high-performance JSON logging)
+- Database: pg (native PostgreSQL client)
+- Deployment: Node.js 20 Alpine Docker image (~200MB, vs Java's 500MB)
+
+**Services Created:**
+- `ApplicationConfigService` — app config management with caching, secret masking, audit trail
+- `AuditLogService` — immutable compliance event logging (user login/logout, config changes, API calls, errors)
+- `LoggerService` — structured application logging with distributed tracing support
+
+**Health checks:**
+- `/health` — basic readiness probe
+- `/health/ready` — deep health check (includes DB connectivity)
 
 ## Next Steps
 
-1. Poll team on language preferences
-2. Evaluate integration patterns with Keycloak Admin API
-3. Test small PoC (JWT validation SDK) in preferred language
-4. Make final decision by end of Week 1
+1. API route handlers for CRUD operations (config, audit queries)
+2. Database connection pooling (pg Pool with retry logic)
+3. Middleware: CORS, helmet, request logging, error handling
+4. Keycloak integration: Admin API client library
+5. Integration tests: against PostgreSQL test database
 
 ## Related Decisions
 - [[ADR-001-Tech-Stack]] — Database, deployment, identity provider
@@ -92,6 +113,10 @@ Backend API layer required for:
 
 ---
 
-**Status:** PENDING  
-**Decision Needed By:** End of Week 1 (2026-10-01)  
+**Status:** DECIDED  
+**Decided:** 2026-09-24  
+**Framework:** Fastify 4.x (TypeScript)  
+**Runtime:** Node.js 18+  
+**Testing:** Jest  
+**Deployment:** Docker (alpine base, ~200MB)  
 **Last Updated:** 2026-09-24
