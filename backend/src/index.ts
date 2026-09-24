@@ -2,6 +2,10 @@ import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import { Pool } from 'pg';
+import { ApplicationConfigService } from './services/ApplicationConfigService.js';
+import { AuditLogService } from './services/AuditLogService.js';
+import { LoggerService } from './services/LoggerService.js';
+import { registerSecurityParametersRoutes } from './routes/SecurityParametersRoutes.js';
 
 const app = Fastify({ logger: true });
 
@@ -18,6 +22,10 @@ const pool = new Pool({
   password: process.env.DB_PASSWORD || 'keycloak-password-dev'
 });
 
+// Initialize services (placeholder; in production would have real repositories)
+const configService = new ApplicationConfigService({} as any, {} as any, new LoggerService());
+const auditLogService = new AuditLogService({} as any);
+
 // Health check
 app.get('/health', async () => {
   return { status: 'ok', timestamp: new Date().toISOString() };
@@ -32,6 +40,9 @@ app.get('/health/ready', async () => {
     return app.httpErrors.serviceUnavailable('Database connection failed');
   }
 });
+
+// Register routes
+await registerSecurityParametersRoutes(app, configService, auditLogService);
 
 // Graceful shutdown
 const gracefulShutdown = async () => {
